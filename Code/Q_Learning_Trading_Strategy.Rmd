@@ -11,7 +11,6 @@ output: html_document
 ```{r}
 set.seed(42)
 options(warn=-1)
-#library(quantmod, warn.conflicts = FALSE)
 library(tidyquant, warn.conflicts = FALSE)
 library(ggplot2, warn.conflicts = FALSE)
 #library(tidyverse, warn.conflicts = FALSE)
@@ -23,6 +22,8 @@ library(readr)
 library(tibble)
 library(data.table)
 library(stringr)
+library(foreach)
+library(doParallel)
 ```
 
 
@@ -39,7 +40,7 @@ head(df)
 # Plot the AAPL time series
 ggplot(df, aes(x = date, y = close)) + 
   geom_line(color = "black") +
-  labs(title = "Bollinger Bands and Price", y = "Price ($)", x = "") +
+  labs(title = "Stock Price", y = "Price ($)", x = "") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ```
@@ -227,7 +228,7 @@ actions <- c("Long", "Short", "Flat")
 ```{r}
 #Dividing data in train and test respectively 80% and 20% of the total data
 df_train <- aapl_data[aapl_data$date <= "2022-12-31", ]
-df_test <- aapl_data[aapl_data$date >= "2022-12-31", ]
+df_test <- aapl_data[aapl_data$date > "2022-12-31", ]
 
 #Calculating again from the new starting point cumulative_market_return and cumulative_strategy_return for fair comparison
 df_test <- df_test %>% mutate(cumulative_market_return = cumprod(1 + daily_return),
@@ -262,19 +263,37 @@ reward_function <- function(row) {
 ```
 
 ```{r}
-iter <- 5 #number of repetition of the experiment
+#Running the experiment multiple times to ensure reliable results
+#Try parallel computing
+
+#ideally iter should be between 30 and 100
+iter <- 5 #Number of repetition of the experiment
 results <- list()
+
+
+
+###new!!!
+cores=detectCores()
+cl <- makeCluster(cores[1]-1)
+registerDoParallel(cl)
+###!!!!
+
+#foreach
+#definire prima una funzione da runnare dentro il ciclo
 
 for (j in 1:iter) {
 
   for (i in 1:(nrow(df_train) - 1)) {
+    #Definition of the states
     current_state <- df_train$State[i]
     next_state <- df_train$State[i + 1]
-
-    if (runif(1) < epsilon) {
-      action <- sample(actions, 1)
+    
+    #Exploration vs Exploitation: the agent explores a random action with probability epsilon, otherwise the agent selects the best action based on the current state
+    #As time goes by, epsilon decays. This choice was made to make the model explore more at the beginning, while after a certain time
+    if (runif(1) < epsilon) { #runif(1) creates a random number between 0 and 1
+      action <- sample(actions, 1) #sample chooses a single random action
     } else {
-      action <- actions[which.max(Q_table[J(current_state), ..actions])]
+      action <- actions[which.max(Q_table[J(current_state), ..actions])] #if runif(1)>epsilon, the agent chooses the best action
     }
 
     reward <- reward_function(df_train[i, ])
@@ -304,6 +323,12 @@ for (j in 1:iter) {
 
   results[[j]] <- data.frame(date = df_train$date, cumulative_RL_return = df_train$cumulative_RL_return)
 }
+
+
+###New part!!!
+stopCluster(cl)
+
+#try to add time and compare time of chunk execution
 ```
 
 ```{r}
