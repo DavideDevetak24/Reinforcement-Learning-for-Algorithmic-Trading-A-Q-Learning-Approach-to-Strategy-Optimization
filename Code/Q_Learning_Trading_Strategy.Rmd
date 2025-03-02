@@ -13,17 +13,17 @@ set.seed(42)
 options(warn=-1)
 library(tidyquant, warn.conflicts = FALSE)
 library(ggplot2, warn.conflicts = FALSE)
-#library(tidyverse, warn.conflicts = FALSE)
 library(reshape2, warn.conflicts = FALSE)
 library(TTR, warn.conflicts = FALSE)
 library(tidyr, warn.conflicts = FALSE)
 library(dplyr, warn.conflicts = FALSE)
 library(readr)
 library(tibble)
-library(data.table)
 library(stringr)
+library(data.table)
 library(foreach)
 library(doParallel)
+library(parallel)
 ```
 
 
@@ -33,7 +33,6 @@ library(doParallel)
 # Import data (Source: Yahoo Finance)
 raw_data <- tq_get("AAPL", from = "2014-12-31", to = "2024-12-31", get = "stock.prices")
 df <- raw_data[, c("date", "close")]
-head(df)
 ```
 
 ```{r}
@@ -42,7 +41,6 @@ ggplot(df, aes(x = date, y = close)) +
   geom_line(color = "black") +
   labs(title = "Stock Price", y = "Price ($)", x = "") +
   theme(plot.title = element_text(hjust = 0.5))
-
 ```
 
 
@@ -77,8 +75,6 @@ df$signal <- aapl_macd[,2]
 
 # Drop "na" values
 aapl_data <- df %>% drop_na()
-
-head(aapl_data)
 ```
 
 ```{r}
@@ -263,76 +259,138 @@ reward_function <- function(row) {
 ```
 
 ```{r}
-#Running the experiment multiple times to ensure reliable results
-#Try parallel computing
+training <- function(j, Q_table, df_train, actions, alpha, gamma, epsilon, min_epsilon, epsilon_decay) {
+  
+  Q_table_local <- copy(Q_table)
+  df_train_local <- copy(df_train)
 
-#ideally iter should be between 30 and 100
-iter <- 5 #Number of repetition of the experiment
-results <- list()
+  for (i in 1:(nrow(df_train_local) - 1)) {
+    current_state <- df_train_local$State[i]
+    next_state <- df_train_local$State[i + 1]
 
-
-
-###new!!!
-cores=detectCores()
-cl <- makeCluster(cores[1]-1)
-registerDoParallel(cl)
-###!!!!
-
-#foreach
-#definire prima una funzione da runnare dentro il ciclo
-
-for (j in 1:iter) {
-
-  for (i in 1:(nrow(df_train) - 1)) {
-    #Definition of the states
-    current_state <- df_train$State[i]
-    next_state <- df_train$State[i + 1]
-    
-    #Exploration vs Exploitation: the agent explores a random action with probability epsilon, otherwise the agent selects the best action based on the current state
-    #As time goes by, epsilon decays. This choice was made to make the model explore more at the beginning, while after a certain time
-    if (runif(1) < epsilon) { #runif(1) creates a random number between 0 and 1
-      action <- sample(actions, 1) #sample chooses a single random action
+    if (runif(1) < epsilon) { 
+      action <- sample(actions, 1)
     } else {
-      action <- actions[which.max(Q_table[J(current_state), ..actions])] #if runif(1)>epsilon, the agent chooses the best action
+      action <- actions[which.max(Q_table_local[J(current_state), ..actions])]
     }
 
-    reward <- reward_function(df_train[i, ])
-    
-    best_future_q <- max(Q_table[J(next_state), ..actions], na.rm = TRUE)
-    Q_table[J(current_state), (action) := (1 - alpha) * get(action) + alpha * (reward + gamma * best_future_q)]
+    reward <- reward_function(df_train_local[i, ])
+    best_future_q <- max(Q_table_local[J(next_state), ..actions], na.rm = TRUE)
 
+    Q_table_local[J(current_state), (action) := (1 - alpha) * get(action) + alpha * (reward + gamma * best_future_q)]
+    
     epsilon <- max(min_epsilon, epsilon * epsilon_decay)
   }
 
-  df_train$RL_Position <- 0  
-  for (i in 1:(nrow(df_train) - 1)) {
-    state <- df_train$State[i]
-    action <- actions[which.max(Q_table[J(state), ..actions])]
-    if (action == "Long") {
-      df_train$RL_Position[i] <- 1
-    } else if (action == "Short") {
-      df_train$RL_Position[i] <- -1
-    } else {
-      df_train$RL_Position[i] <- 0
-    }
+  df_train_local$RL_Position <- 0  
+  for (i in 1:(nrow(df_train_local) - 1)) {
+    state <- df_train_local$State[i]
+    action <- actions[which.max(Q_table_local[J(state), ..actions])]
+    df_train_local$RL_Position[i] <- ifelse(action == "Long", 1, ifelse(action == "Short", -1, 0))
   }
 
-  df_train$RL_strategy_return <- df_train$daily_return * df_train$RL_Position
-  df_train$cumulative_RL_return <- cumsum(df_train$RL_strategy_return)
-  df_train$cumulative_RL_return <- 1 + (df_train$cumulative_RL_return - df_train$cumulative_RL_return[1])
+  df_train_local$RL_strategy_return <- df_train_local$daily_return * df_train_local$RL_Position
+  df_train_local$cumulative_RL_return <- cumsum(df_train_local$RL_strategy_return)
+  df_train_local$cumulative_RL_return <- 1 + (df_train_local$cumulative_RL_return - df_train_local$cumulative_RL_return[1])
 
-  results[[j]] <- data.frame(date = df_train$date, cumulative_RL_return = df_train$cumulative_RL_return)
+  return(data.frame(date = df_train_local$date, cumulative_RL_return = df_train_local$cumulative_RL_return))
+}
+```
+
+
+```{r}
+iter <- 100  
+
+cores=detectCores()
+cl <- makeCluster(cores[1]-1)
+registerDoParallel(cl)
+
+clusterSetRNGStream(cl, iseed = 42)
+
+clusterExport(cl, varlist = c("df_train", "actions", "Q_table", "reward_function", 
+                              "alpha", "gamma", "epsilon", "min_epsilon", "epsilon_decay"), 
+              envir = environment())
+
+start_time <- Sys.time()
+
+results <- foreach(j = 1:iter, .packages = c("data.table"), 
+                   .options.snow = list(seed = TRUE)) %dopar% {
+  training(j, Q_table, df_train, actions, alpha, gamma, epsilon, min_epsilon, epsilon_decay)
 }
 
-
-###New part!!!
 stopCluster(cl)
 
-#try to add time and compare time of chunk execution
+end_time <- Sys.time()
+print(end_time - start_time)
 ```
 
 ```{r}
-Q_table
+# #Running the experiment multiple times to ensure reliable results
+# #Try parallel computing
+# 
+# #ideally iter should be between 30 and 100
+# iter <- 5 #Number of repetition of the experiment
+# results <- list()
+# 
+# 
+# 
+# ###new!!!
+# cores=detectCores()
+# cl <- makeCluster(cores[1]-1)
+# registerDoParallel(cl)
+# ###!!!!
+# 
+# #foreach
+# #definire prima una funzione da runnare dentro il ciclo
+# 
+# for (j in 1:iter) {
+# 
+#   for (i in 1:(nrow(df_train) - 1)) {
+#     #Definition of the states
+#     current_state <- df_train$State[i]
+#     next_state <- df_train$State[i + 1]
+#     
+#     #Exploration vs Exploitation: the agent explores a random action with probability epsilon, otherwise the agent selects the best action based on the current state
+#     #As time goes by, epsilon decays. This choice was made to make the model explore more at the beginning, while after a certain time
+#     if (runif(1) < epsilon) { #runif(1) creates a random number between 0 and 1
+#       action <- sample(actions, 1) #sample chooses a single random action
+#     } else {
+#       action <- actions[which.max(Q_table[J(current_state), ..actions])] #if runif(1)>epsilon, the agent chooses the best action
+#     }
+# 
+#     reward <- reward_function(df_train[i, ])
+#     
+#     best_future_q <- max(Q_table[J(next_state), ..actions], na.rm = TRUE)
+#     Q_table[J(current_state), (action) := (1 - alpha) * get(action) + alpha * (reward + gamma * best_future_q)]
+# 
+#     epsilon <- max(min_epsilon, epsilon * epsilon_decay)
+#   }
+# 
+#   df_train$RL_Position <- 0  
+#   for (i in 1:(nrow(df_train) - 1)) {
+#     state <- df_train$State[i]
+#     action <- actions[which.max(Q_table[J(state), ..actions])]
+#     if (action == "Long") {
+#       df_train$RL_Position[i] <- 1
+#     } else if (action == "Short") {
+#       df_train$RL_Position[i] <- -1
+#     } else {
+#       df_train$RL_Position[i] <- 0
+#     }
+#   }
+# 
+#   df_train$RL_strategy_return <- df_train$daily_return * df_train$RL_Position
+#   df_train$cumulative_RL_return <- cumsum(df_train$RL_strategy_return)
+#   df_train$cumulative_RL_return <- 1 + (df_train$cumulative_RL_return - df_train$cumulative_RL_return[1])
+# 
+#   results[[j]] <- data.frame(date = df_train$date, cumulative_RL_return = df_train$cumulative_RL_return)
+# }
+# 
+# 
+# ###New part!!!
+# stopCluster(cl)
+# 
+# #try to add time and compare time of chunk execution
 ```
 
 ```{r}
