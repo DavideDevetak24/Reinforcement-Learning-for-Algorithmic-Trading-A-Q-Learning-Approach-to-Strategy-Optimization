@@ -1,14 +1,9 @@
----
-title: "Q_Learning_Trading_Strategy"
-author: "Davide"
-date: "`r Sys.Date()`"
-output: html_document
----
+cat("\014")
+rm(list = ls())
+gc()
+graphics.off()
 
 
-## 0. Import Libraries
-
-```{r}
 set.seed(42)
 options(warn=-1)
 library(tidyverse, warn.conflicts = FALSE)
@@ -19,48 +14,26 @@ library(data.table)
 library(foreach)
 library(doParallel)
 library(parallel)
-```
 
-
-## 1. Import Data
-
-```{r}
 # Import data (Source: Yahoo Finance)
 raw_data <- tq_get("AAPL", from = "2014-12-31", to = "2024-12-31", get = "stock.prices")
 df <- raw_data[, c("date", "close")]
-```
 
-```{r}
 # Plot the AAPL time series
 ggplot(df, aes(x = date, y = close)) + 
   geom_line(color = "black") +
   labs(title = "Stock Price", y = "Price ($)", x = "") +
   theme(plot.title = element_text(hjust = 0.5))
-```
 
-
-## 2. Creation of Technical Indicators
-
-### 2.1. Bollinger Bands
-
-```{r}
 # Creation of Bollinger Bands
 aapl_bbands <- BBands(df$close, n = 10,sd = 2)
 aapl_bbands <- aapl_bbands[,c("dn","mavg", "up")]
 # Clear row names to use default indexing
 rownames(aapl_bbands) <- NULL
-```
 
-### 2.2. MACD Indicator
-
-```{r}
 # Creation of MACD indicator
 aapl_macd <- MACD(df$close, nFast = 12, nSlow = 24, nSig = 9, wilder=FALSE)
-```
 
-### 2.3. Plotting Bollinger Bands and MACD Indicator
-
-```{r}
 # Add the indicators to the original df
 df$bb_lower <- aapl_bbands[,1]
 df$bb_middle <- aapl_bbands[,2]
@@ -70,9 +43,7 @@ df$signal <- aapl_macd[,2]
 
 # Drop "na" values
 aapl_data <- df %>% drop_na()
-```
 
-```{r}
 # Plot Bollinger Bands
 ggplot(aapl_data, aes(x = date)) +
   geom_ribbon(aes(ymin = bb_lower, ymax = bb_upper), fill = "lightgreen", alpha = 0.25) +
@@ -83,39 +54,26 @@ ggplot(aapl_data, aes(x = date)) +
   labs(title = "Bollinger Bands and Price", y = "Price ($)", x = "") + 
   theme(plot.title = element_text(hjust = 0.5))
 
-```
-
-```{r}
 # Plot MACD and Signal line
 ggplot(aapl_data, aes(x = date)) +
   geom_line(aes(y = macd), color = "blue") +
   geom_line(aes(y = signal), color = "red") +
   labs(title = "MACD and Signal Line", y = "MACD", x = "") +
   theme(plot.title = element_text(hjust = 0.5))
-```
 
-## 3. Creation of the Trading Strategy
-
-### 3.1. Creation of the signals and position in the strategy
-
-```{r}
 # Creation of Trading Signals based on the behavior of Bollinger Bands and MACD Indicator
 aapl_data$Buy_Signal <- ifelse((aapl_data$close <= aapl_data$bb_lower) &
                                  (aapl_data$macd > aapl_data$signal), 1, 0)
 aapl_data$Sell_Signal <- ifelse((aapl_data$close >= aapl_data$bb_upper) &
                                   (aapl_data$macd < aapl_data$signal), 1, 0)
-```
 
-```{r}
 # Trading Strategy setup
 aapl_data$Position <- 0 #I set the initial position to zero (in other words "Neutral" position)
 max_hold_days <- 10 #The strategy will hold the position for 10 days
 
 current_position <- 0 #Needed to understand if the strategy is long (1), short (-1) or neutral (0)
 days_in_position <- 0 #Counter for how long the strategy holds a position
-```
 
-```{r}
 #Algorithm for the creation of the trading position
 #The idea is to maintain the current position unless there's a different signal or threshold that indicates otherwise
 for(i in 1:nrow(aapl_data)){
@@ -139,7 +97,7 @@ for(i in 1:nrow(aapl_data)){
       current_position <- 0 
       days_in_position <- 0
     }
-   
+    
     if(current_position == -1 && (aapl_data$Buy_Signal[i] == 1 || days_in_position >= max_hold_days)) {
       current_position <- 0
       days_in_position <- 0
@@ -149,13 +107,6 @@ for(i in 1:nrow(aapl_data)){
   aapl_data$Position[i] <- current_position
 }
 
-
-
-```
-
-### 3.2. Plot of the trading positions and Strategy return
-
-```{r}
 # Plot the trading positions
 ggplot(aapl_data, aes(x = date)) +
   geom_line(aes(y = close), color = "black") +
@@ -164,9 +115,6 @@ ggplot(aapl_data, aes(x = date)) +
   labs(title = "Price and Trading positions", y = "Price ($)", x = "") +
   theme(plot.title = element_text(hjust = 0.5))
 
-```
-
-```{r}
 # Compute returns
 #Added column daily_return
 aapl_data <- aapl_data %>% mutate(daily_return = close / lag(close) - 1)
@@ -177,16 +125,8 @@ aapl_data <- aapl_data %>% mutate(strategy_return = daily_return * lag(Position,
 
 #Add cumulative_market_return and cumulative_strategy_return columns to the dataset
 aapl_data <- aapl_data %>% mutate(cumulative_market_return = cumprod(1 + daily_return),
-         cumulative_strategy_return = cumprod(1 + strategy_return))
+                                  cumulative_strategy_return = cumprod(1 + strategy_return))
 
-```
-
-```{r}
-aapl_data
-```
-
-
-```{r}
 #Plot of the Market return and strategy return
 ggplot(aapl_data, aes(x = date)) +
   geom_line(aes(y = cumulative_market_return*100, color = "Market Return"), size = 0.5) +
@@ -195,15 +135,6 @@ ggplot(aapl_data, aes(x = date)) +
   scale_color_manual(values = c("Market Return" = "black", "Strategy Return" = "blue")) +
   theme(plot.title = element_text(hjust = 0.5))
 
-```
-
-
-
-## 4. Reinforcement Learning
-
-### 4.1. Creation of States and Actions
-
-```{r}
 #I create the State column which represents the environment of the trading strategy, then I create the possible action of the trading strategy
 #State combines Bollinger Bands, MACD, trading signals and trading positions into a single categorical variable
 aapl_data$State <- paste0(
@@ -222,22 +153,15 @@ aapl_data$State <- paste0(
 actions <- c("Long", "Short", "Flat")
 
 #the Q-learning model will choose the best action based on the state
-```
 
-```{r}
 #Dividing data in train and test respectively 80% and 20% of the total data
 df_train <- aapl_data[aapl_data$date <= "2022-12-31", ]
 df_test <- aapl_data[aapl_data$date > "2022-12-31", ]
 
 #Calculating again from the new starting point cumulative_market_return and cumulative_strategy_return for fair comparison
 df_test <- df_test %>% mutate(cumulative_market_return = cumprod(1 + daily_return),
-         cumulative_strategy_return = cumprod(1 + strategy_return))
-```
+                              cumulative_strategy_return = cumprod(1 + strategy_return))
 
-
-### 4.2. Creation of the Agent
-
-```{r}
 #Creation of the Q-table where rows: states, columns: actions. Initialization with all values equal to zero
 Q_table <- data.table(State = unique(df_train$State))
 for (a in actions) {
@@ -254,9 +178,6 @@ epsilon <- 1 #casual exploration
 epsilon_decay <- 0.999 #decay of epsilon as time passes
 min_epsilon <- 0.01 #minimum level of epsilon
 
-```
-
-```{r}
 #Create the reward function
 reward_function <- function(df_row, action) {
   if (action == "Long") {
@@ -267,9 +188,7 @@ reward_function <- function(df_row, action) {
     return(-1) #Agent penalized for inactivity
   }
 }
-```
 
-```{r}
 #Training of the Q-Learning algorithm
 training <- function(j, Q_table, df_train, actions, alpha, gamma, epsilon, min_epsilon, epsilon_decay) {
   
@@ -278,38 +197,35 @@ training <- function(j, Q_table, df_train, actions, alpha, gamma, epsilon, min_e
   Q_table_local <- copy(Q_table)  
   df_train_local <- copy(df_train)
   local_epsilon <- epsilon
-
+  
   for (i in 1:(nrow(df_train_local) - 1)) {
     #Definition of the states
     current_state <- df_train_local$State[i]
     next_state <- df_train_local$State[i + 1]
-
+    
     #Exploration vs Exploitation: the agent explores a random action with probability epsilon, otherwise the agent selects the best action based on the current state. As time goes by, epsilon decays. This choice was made to make the model explore more at the beginning
     if (runif(1) < local_epsilon) { #runif(1) creates a random number between 0 and 1
       action <- sample(actions, 1) #sample chooses a single random action
     } else {
       action <- actions[which.max(Q_table_local[J(current_state), ..actions])] #if runif(1)>epsilon, the agent chooses the best action
     } #action returns on of the actions chosen
-
+    
     #Function defined above that takes as reward the return of i+1 based on the agent's action
     reward <- reward_function(df_train_local[i+1, ], action)
     #Select best future action
     best_future_q <- max(Q_table_local[J(next_state), ..actions], na.rm = TRUE)
-
+    
     # Bellman Equation
     Q_table_local[J(current_state), (action) := (1 - alpha) * get(action) + alpha * (reward + gamma * best_future_q)] #get(action) returns the value on the Q_table that is linked to that action given a state
     
     #Update of epsilon
     local_epsilon <- max(min_epsilon, local_epsilon * epsilon_decay)
   }
-
+  
   #The function when iterated will return a list with the Q-tables
   return(Q_table_local = Q_table_local)
 }
 
-```
-
-```{r}
 #Number of iterations
 iter <- 100
 
@@ -330,9 +246,7 @@ stopCluster(cl)
 
 end_time <- Sys.time()
 print(end_time - start_time)
-```
 
-```{r}
 #Unwrapping the results
 #I first transform from data.table format to a matrix of numeric values
 Q_tables_num <- lapply(results, function(q_table) {
@@ -348,44 +262,31 @@ Q_tables_num <- lapply(results, function(q_table) {
 Q_table_avg_matrix <- Reduce("+", Q_tables_num) / iter
 #Convert again into a data.table
 Q_table_avg <- data.table(State = results[[1]]$State, Q_table_avg_matrix)
-```
 
-```{r}
-Q_table_avg
-```
-
-
-### 4.3. Performance on Train Data
-
-```{r}
 #Generating the trading signals using the train data
 setkey(Q_table_avg, State)
 
 #Based on the state, I choose the action with the maximum value
 df_train$RL_Position <- 0  
-  for (i in 1:(nrow(df_train) - 1)) {
-    state <- df_train$State[i]
-    #I save into a variable the action
-    action <- actions[which.max(Q_table_avg[J(state), ..actions])]
-    #Creation of a column with the trading positions
-    if (action == "Long") {
-      df_train$RL_Position[i] <- 1
-    } else if (action == "Short") {
-      df_train$RL_Position[i] <- -1
-    } else {
-      df_train$RL_Position[i] <- 0
-    }
+for (i in 1:(nrow(df_train) - 1)) {
+  state <- df_train$State[i]
+  #I save into a variable the action
+  action <- actions[which.max(Q_table_avg[J(state), ..actions])]
+  #Creation of a column with the trading positions
+  if (action == "Long") {
+    df_train$RL_Position[i] <- 1
+  } else if (action == "Short") {
+    df_train$RL_Position[i] <- -1
+  } else {
+    df_train$RL_Position[i] <- 0
   }
-```
+}
 
-```{r}
 #Calculations of the returns
 #As before, I open a position the day after receiving a signal
 df_train$RL_strategy_return <- df_train$daily_return * lag(df_train$RL_Position, default = 0)
 df_train$cumulative_RL_return <- cumprod(1 + df_train$RL_strategy_return)
-```
 
-```{r}
 #Plotting train results
 ggplot(df_train, aes(x = date)) +
   geom_line(aes(y = cumulative_market_return*100, color = "Market")) +
@@ -394,36 +295,28 @@ ggplot(df_train, aes(x = date)) +
   labs(title = "Comparison Strategy RL vs Bollinger & MACD - Train Data", y = "Return (%)", x = "", color="Legend") +
   scale_color_manual(values = c("Market" = "blue", "Bollinger & MACD" = "green", "Q-Learning RL (Avg)" = "red")) +
   theme(plot.title = element_text(hjust = 0.5))
-```
 
-### 4.4. Performance on Test Data
-
-```{r}
 #I repeat the same procedure using the same code as above but this time I use test data to evaluate the RL performance
 setkey(Q_table_avg, State)
 
 df_test$RL_Position <- 0  
-  for (i in 1:(nrow(df_test) - 1)) {
-    state <- df_test$State[i]
-    action <- actions[which.max(Q_table_avg[J(state), ..actions])]
-    
-    if (action == "Long") {
-      df_test$RL_Position[i] <- 1
-    } else if (action == "Short") {
-      df_test$RL_Position[i] <- -1
-    } else {
-      df_test$RL_Position[i] <- 0
-    }
+for (i in 1:(nrow(df_test) - 1)) {
+  state <- df_test$State[i]
+  action <- actions[which.max(Q_table_avg[J(state), ..actions])]
+  
+  if (action == "Long") {
+    df_test$RL_Position[i] <- 1
+  } else if (action == "Short") {
+    df_test$RL_Position[i] <- -1
+  } else {
+    df_test$RL_Position[i] <- 0
   }
-```
+}
 
-```{r}
 #I calculate returns
 df_test$RL_strategy_return <- df_test$daily_return * lag(df_test$RL_Position, default = 0)
 df_test$cumulative_RL_return <- cumprod(1 + df_test$RL_strategy_return)
-```
 
-```{r}
 #Plotting test results
 ggplot(df_test, aes(x = date)) +
   geom_line(aes(y = cumulative_market_return*100, color = "Market")) +
@@ -433,13 +326,6 @@ ggplot(df_test, aes(x = date)) +
   scale_color_manual(values = c("Market" = "blue", "Bollinger & MACD" = "green", "Q-Learning RL" = "red")) +
   theme(plot.title = element_text(hjust = 0.5))
 
-```
-
-
-
-# 5. Results and Returns
-
-```{r}
 #I define the risk free for the calculation of the Sharpe ratio
 risk_free <- 0.025
 daily_rf <- ((1+0.025)^(1/360))-1
@@ -474,7 +360,6 @@ alpha_RL_test <- mean(df_test$RL_strategy_return) - mean(df_test$daily_return)
 sharpe_tech_test <- (mean(df_test$strategy_return) - daily_rf)/tech_std_test
 sharpe_RL_test <- (mean(df_test$RL_strategy_return) - daily_rf)/RL_std_test
 
-
 #Creating the dataframe for the results
 strategies_statistics <- data.frame(
   Metric = c("Cumul AAPL Return", "Cumul Tech Strat Return", 
@@ -489,7 +374,18 @@ strategies_statistics <- data.frame(
 
 strategies_statistics
 
-```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
