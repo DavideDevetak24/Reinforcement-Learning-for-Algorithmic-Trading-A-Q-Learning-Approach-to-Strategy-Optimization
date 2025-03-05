@@ -1,4 +1,4 @@
-# Trading_Strategies_Using_Q_Learning
+# Trading_Strategies_Q_Learning
 
 This project analyzes two trading strategies based on MACD and Bollinger Bands. The first one is a simple rule-based strategy, the second one uses a reinforcement learning (RL) approach using Q-Learning.
 
