@@ -1,7 +1,9 @@
-# Trading_Strategies_Q_Learning
+# Reinforcement Learning for Algorithmic Trading: A Q-Learning Approach to Strategy Optimization
 
-This project analyzes two trading strategies: the first one is a simple rule-based strategy, the second one leverages a Reinforcement Learning (RL) approach using Q-Learning.
+In financial markets, traders are constantly seeking strategies to maximize returns while managing risk. Traditional approaches rely on historical price patterns, economic indicators, and company performance metrics to make trading decisions. However, financial markets are highly complex and achieving consistently above-average-returns is challenging.
 
-To ensure replicability, I used the function set.seed(). Additionally, I implemented a cycle in the Q-Learning algorithm to explore a wider range of results, improving robustness and providing a more reliable comparison between the strategies.
+Especially in the last decade, many investment firms switched to more mathematical approaches to generate higher returns, especially leveraging the breakthroughs in Machine Learning or Artificial Intelligence in general. 
 
-This approach aims to compare the effectiveness of traditional technical indicators versus an adaptive learning-based method in trading.
+Reinforcement Learning (RL), a sub-field of AI, offers a data-driven approach to developing trading strategies capable of adapting in the market environment. Unlike traditional methods, RL does not rely on predefined rules but instead learns optimal decision-making policies through interaction with the market environment. By continuously updating its strategy based on rewards and penalties, the algorithm is capable of identifying patterns and improve its trading decisions over time.
+
+In this study, I create a Q-Learning-based trading strategy using Apple Inc. (AAPL) time series, leveraging the widely used technical indicators Bollinger Bands and MACD (Moving Average Convergence/Divergence). The goal of the study is to train an RL agent to autonomously generate buy and sell signals, optimizing trading strategy performance by maximizing cumulative returns. The results then will be tested against a traditional "Buy and Hold" approach and a purely technical trading strategy.
